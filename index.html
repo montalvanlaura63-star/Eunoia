@@ -365,35 +365,34 @@
     function getMensaje(dia, nombre, guia) {
       const link = TRACKING + guia;
       const n = nombre.split(' ')[0];
-      // Capitalizar primera letra
       const nc = n.charAt(0).toUpperCase() + n.slice(1).toLowerCase();
       const msgs = [
-        // Día 0 — despacho inicial
+        // Día 0 — despacho (único con link, se envía desde Despacho)
         `¡Buen día ${nc}! 👋 Le saluda *Eunoia Shop*. Su pedido ya fue despachado con guía *${guia}*.\n\nPuede rastrear su paquete aquí:\n${link}\n\nEstaremos pendientes. 🛍️`,
         // Día 1
-        `¡Buen día ${nc}! 😊 Le saluda *Eunoia Shop*. Quería confirmar si ya recibió su paquete.\n\nPuede verificar el estado aquí:\n${link}`,
+        `¡Buen día ${nc}! Somos de *Eunoia Shop*, ¿ya le entregaron su paquete?`,
         // Día 2
-        `¡Buen día ${nc}! Le contacta *Eunoia Shop*. Quería saber si ya le llamaron sobre su pedido.\n\nRastreo: ${link}`,
+        `¡Buen día ${nc}! Le escribe *Eunoia Shop*, ¿ya le llamaron de la transportista para coordinar su entrega?`,
         // Día 3
-        `¡Buen día ${nc}! 📦 Somos *Eunoia Shop*. Quería saber si ya tiene su pedido en mano.\n\nEstado: ${link}`,
+        `¡Buen día ${nc}! Somos de *Eunoia Shop*, ¿tiene alguna novedad sobre su pedido?`,
         // Día 4
-        `¡Buen día ${nc}! Le saluda *Eunoia Shop*. Quería confirmar si la transportista ya le contactó para su entrega.\n\nRastreo: ${link}`,
+        `¡Buen día ${nc}! Le contacta *Eunoia Shop*, ¿ya tiene su paquete en mano?`,
         // Día 5
-        `¡Buen día ${nc}! 🙌 *Eunoia Shop* al habla. Quería saber si ya le llegó su paquete o si necesita apoyo.\n\nEstado: ${link}`,
+        `¡Buen día ${nc}! *Eunoia Shop* al habla, ¿ya pasaron a dejarle su pedido?`,
         // Día 6
-        `¡Buen día ${nc}! Le escribe *Eunoia Shop*. Quería confirmar si ya recibió su pedido con guía *${guia}*.\n\nRastreo: ${link} 🧡`,
+        `¡Buen día ${nc}! Somos de *Eunoia Shop*, ¿hubo algún inconveniente con la entrega de su paquete?`,
         // Día 7
-        `¡Buen día ${nc}! Somos *Eunoia Shop*. Quería saber si ya coordinaronla entrega con usted.\n\nVer estado: ${link}`,
+        `¡Buen día ${nc}! Le escribe *Eunoia Shop*, ¿le han dado alguna fecha para la entrega de su pedido?`,
         // Día 8
-        `¡Buen día ${nc}! 🙏 Le contacta *Eunoia Shop*. Quería saber si tiene alguna novedad sobre su pedido *${guia}*.\n\nRastreo: ${link}`,
+        `¡Buen día ${nc}! *Eunoia Shop* nuevamente, ¿pudieron comunicarse con usted de la transportista?`,
         // Día 9
-        `¡Buen día ${nc}! *Eunoia Shop* nuevamente. Quería confirmar si ya recibió su paquete o si hubo algún inconveniente.\n\nEstado: ${link}`,
+        `¡Buen día ${nc}! Somos de *Eunoia Shop*, ¿su pedido ya llegó a sus manos?`,
         // Día 10
-        `¡Buen día ${nc}! Le escribe *Eunoia Shop*. Quería saber si su pedido *${guia}* ya llegó a sus manos.\n\nRastreo: ${link}`,
+        `¡Buen día ${nc}! Le contacta *Eunoia Shop*, ¿tiene alguna novedad o necesita que le ayudemos con algo?`,
         // Día 11
-        `¡Buen día ${nc}! 🙏 Somos *Eunoia Shop*. Es importante confirmar si recibió su pedido. Si no lo ha recibido, por favor avísenos.\n\nEstado: ${link}`,
+        `¡Buen día ${nc}! *Eunoia Shop* al habla, ¿ya recibió su paquete o aún está pendiente?`,
         // Día 12
-        `¡Buen día ${nc}! Este es nuestro último mensaje de seguimiento del pedido *${guia}*. Por favor confirme si ya lo recibió. Si no, contáctenos de inmediato para ayudarle. *Eunoia Shop* 🧡\n\nRastreo: ${link}`
+        `¡Buen día ${nc}! Somos de *Eunoia Shop*, este es nuestro último seguimiento. ¿Ya recibió su pedido? Si no es así, por favor avísenos para ayudarle. 🧡`
       ];
       return msgs[Math.min(dia, 12)];
     }
@@ -475,7 +474,7 @@
     }
 
     // ── BOX FULL TRACKING ─────────────────────────────────
-    async function cargarBoxFull(guiaTracking, containerId) {
+    async function cargarBoxFull(guiaTracking, containerId, docId) {
       const el = document.getElementById(containerId);
       if (!el) return;
       el.innerHTML = `<div class="bf-loading">⏳ Consultando Box Full...</div>`;
@@ -485,6 +484,27 @@
         if (!res.ok || !data.steps || data.steps.length === 0) {
           el.innerHTML = `<div class="bf-error">No se pudo obtener estado. <a class="bf-link" href="https://tracking.goboxful.com?shipment=${guiaTracking}" target="_blank">Ver en Box Full →</a></div>`;
           return;
+        }
+        // Actualizar badge con último estado completado de Box Full
+        if (docId) {
+          const badge = document.getElementById(`badge-${docId}`);
+          if (badge) {
+            const completados = data.steps.filter(s => s.done);
+            if (completados.length > 0) {
+              const ultimo = completados[completados.length - 1];
+              badge.textContent = ultimo.title;
+              if (/entregado/i.test(ultimo.title)) {
+                badge.className = 'badge badge-entregado';
+              } else if (/ruta/i.test(ultimo.title)) {
+                badge.style.cssText = '';
+                badge.className = 'badge';
+                badge.style.background = 'rgba(37,99,235,0.12)';
+                badge.style.color = '#2563eb';
+              } else {
+                badge.className = 'badge badge-camino';
+              }
+            }
+          }
         }
         el.innerHTML = renderBoxFullTimeline(data.steps, guiaTracking, data.fechaEstimada, data.paqueteria);
       } catch(e) {
@@ -517,12 +537,15 @@
 
     // ── SEGUIMIENTO ───────────────────────────────────────
     function cargarSeguimiento() {
-      db.collection("pedidos").where("estado","==","En Camino").onSnapshot(snap => {
+      db.collection("pedidos").where("estado","==","En Camino").onSnapshot(async snap => {
         const el = document.getElementById('list-s');
         if (snap.empty) {
           el.innerHTML = `<div class="empty-state"><div class="empty-icon">🚚</div><div class="empty-text">No hay envíos en camino</div></div>`;
           return;
         }
+        // Obtener historial para detectar clientes frecuentes
+        const histSnap = await db.collection("pedidos").where("estado","in",["Entregado","No Entregado"]).get();
+        const nombresHistorial = histSnap.docs.map(d => d.data().nombre.trim().toUpperCase());
         el.innerHTML = snap.docs.map(doc => {
           const p = doc.data();
           const dia = p.diaSeguimiento || 1;
@@ -531,18 +554,19 @@
           const fechaStr = p.fecha ? new Date(p.fecha).toLocaleDateString('es-HN',{day:'2-digit',month:'short'}) : '';
           const pct = Math.round((dia/12)*100);
           const bfId = `bf-${doc.id}`;
+          const esFrecuente = nombresHistorial.includes(p.nombre.trim().toUpperCase());
           return `
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
               <div>
-                <div style="font-weight:700;font-size:17px;">${p.nombre}</div>
+                <div style="font-weight:700;font-size:17px;">${p.nombre} ${esFrecuente ? '<span title="Cliente frecuente" style="font-size:15px;">⭐</span>' : ''}</div>
                 <div class="card-info" style="margin-top:4px;margin-bottom:0;">
                   <span class="guia-badge">${p.guia}</span>
                   <span style="font-size:10px;">${p.telefono}</span>
                 </div>
               </div>
               <div style="text-align:right;">
-                <span class="badge badge-camino">En camino</span>
+                <span class="badge badge-camino" id="badge-${doc.id}">En camino</span>
                 <div class="fecha-text" style="margin-top:4px;">${fechaStr}</div>
               </div>
             </div>
@@ -575,10 +599,24 @@
         snap.docs.forEach(doc => {
           const p = doc.data();
           const guiaT = p.guiaTracking || p.guia;
-          if (guiaT) cargarBoxFull(guiaT, `bf-${doc.id}`);
+          if (guiaT) cargarBoxFull(guiaT, `bf-${doc.id}`, doc.id);
         });
       });
     }
+
+    // Auto-actualización cada 5 minutos
+    setInterval(() => {
+      if (document.getElementById('p-s')?.classList.contains('active')) {
+        document.querySelectorAll('[id^="bf-"]').forEach(el => {
+          const docId = el.id.replace('bf-','');
+          const guiaEl = el.closest('.card')?.querySelector('.guia-badge');
+          if (guiaEl) {
+            const guia = guiaEl.textContent.trim();
+            cargarBoxFull(guia, el.id, docId);
+          }
+        });
+      }
+    }, 5 * 60 * 1000);
 
     function toggleMotivo(id) {
       const box = document.getElementById(`mbox-${id}`);
