@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="es">
-<head>
+ <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Eunoia — Control de Envíos</title>
@@ -10,12 +10,11 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black">
   <meta name="apple-mobile-web-app-title" content="Eunoia Envíos">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&family=DM+Sans:wght@300;400;500;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@400;600;700&amp;family=DM+Sans:wght@300;400;500;700&amp;display=swap" rel="stylesheet">
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore-compat.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
-
   <style>
     :root {
       --black: #0D0D0D; --orange: #E2622A; --orange-light: rgba(226,98,42,0.12);
@@ -129,6 +128,28 @@
     .empty-icon { font-size:40px; margin-bottom:10px; }
     .empty-text { font-size:14px; font-weight:500; }
 
+    /* BOX FULL TRACKING TIMELINE */
+    .bf-wrap { margin:12px 0 8px; }
+    .bf-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
+    .bf-title { font-size:10px; font-weight:700; color:var(--muted); letter-spacing:1.5px; text-transform:uppercase; }
+    .bf-refresh { background:none; border:none; cursor:pointer; font-size:13px; padding:2px 6px; border-radius:6px; color:var(--muted); transition:color 0.2s; }
+    .bf-refresh:hover { color:var(--orange); }
+    .bf-timeline { display:flex; flex-direction:column; gap:0; }
+    .bf-step { display:flex; align-items:flex-start; gap:10px; padding:8px 0; position:relative; }
+    .bf-step:not(:last-child)::after { content:''; position:absolute; left:12px; top:28px; bottom:-8px; width:2px; background:var(--gray2); }
+    .bf-step.done::after { background:var(--orange); opacity:0.4; }
+    .bf-dot { width:24px; height:24px; border-radius:50%; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px; }
+    .bf-dot.done { background:#2563eb; }
+    .bf-dot.pending { background:#d1d5db; }
+    .bf-dot svg { width:13px; height:13px; fill:white; }
+    .bf-info { flex:1; }
+    .bf-step-title { font-weight:700; font-size:13px; color:var(--black); }
+    .bf-step-title.pending { color:#9ca3af; font-weight:500; }
+    .bf-step-date { font-size:11px; color:var(--muted); margin-top:1px; }
+    .bf-loading { text-align:center; padding:14px; color:var(--muted); font-size:12px; }
+    .bf-error { font-size:11px; color:var(--red); padding:6px 0; }
+    .bf-link { font-size:10px; color:var(--orange); text-decoration:none; font-weight:700; letter-spacing:0.5px; }
+
     /* PANEL NOTIFICACIONES */
     .notif-overlay {
       position: fixed; inset: 0; background: rgba(0,0,0,0.5);
@@ -188,7 +209,6 @@
     .notif-empty-icon { font-size: 36px; margin-bottom: 10px; }
     .notif-empty-text { font-size: 13px; font-weight: 500; }
   </style>
-
   <script>
     const CONFIG = {
       apiKey: "AIzaSyCK6G6h0UzSLO2e57PZHbxUEOS2hAfnwbU",
@@ -454,6 +474,41 @@
       window.open(`https://wa.me/${telFull}?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
+    // ── BOX FULL TRACKING ─────────────────────────────────
+    async function cargarBoxFull(guiaTracking, containerId) {
+      const el = document.getElementById(containerId);
+      if (!el) return;
+      el.innerHTML = `<div class="bf-loading">⏳ Consultando Box Full...</div>`;
+      try {
+        const res = await fetch(`/.netlify/functions/boxful?shipment=${guiaTracking}`);
+        const data = await res.json();
+        if (!res.ok || !data.steps || data.steps.length === 0) {
+          el.innerHTML = `<div class="bf-error">No se pudo obtener estado. <a class="bf-link" href="https://tracking.goboxful.com?shipment=${guiaTracking}" target="_blank">Ver en Box Full →</a></div>`;
+          return;
+        }
+        el.innerHTML = renderBoxFullTimeline(data.steps, guiaTracking);
+      } catch(e) {
+        el.innerHTML = `<div class="bf-error">Sin conexión con Box Full. <a class="bf-link" href="https://tracking.goboxful.com?shipment=${guiaTracking}" target="_blank">Ver aquí →</a></div>`;
+      }
+    }
+
+    function renderBoxFullTimeline(steps, guiaTracking) {
+      const svgArrow = `<svg viewBox="0 0 24 24"><path d="M12 4v12M6 11l6 6 6-6" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
+      const stepsHtml = steps.map(s => `
+        <div class="bf-step ${s.done ? 'done' : 'pending'}">
+          <div class="bf-dot ${s.done ? 'done' : 'pending'}">${svgArrow}</div>
+          <div class="bf-info">
+            <div class="bf-step-title ${s.done ? '' : 'pending'}">${s.title}</div>
+            <div class="bf-step-date">${s.date}</div>
+          </div>
+        </div>`).join('');
+      return `
+        <div class="bf-timeline">${stepsHtml}</div>
+        <div style="margin-top:8px;">
+          <a class="bf-link" href="https://tracking.goboxful.com?shipment=${guiaTracking}" target="_blank">↗ Ver en Box Full</a>
+        </div>`;
+    }
+
     // ── SEGUIMIENTO ───────────────────────────────────────
     function cargarSeguimiento() {
       db.collection("pedidos").where("estado","==","En Camino").onSnapshot(snap => {
@@ -469,6 +524,7 @@
           const msgPrev = getMensaje(dia, p.nombre, guiaT);
           const fechaStr = p.fecha ? new Date(p.fecha).toLocaleDateString('es-HN',{day:'2-digit',month:'short'}) : '';
           const pct = Math.round((dia/12)*100);
+          const bfId = `bf-${doc.id}`;
           return `
           <div class="card">
             <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;">
@@ -484,8 +540,16 @@
                 <div class="fecha-text" style="margin-top:4px;">${fechaStr}</div>
               </div>
             </div>
+            <div class="bf-wrap">
+              <div class="bf-header">
+                <span class="bf-title">📦 Estado Box Full</span>
+                <button class="bf-refresh" onclick="cargarBoxFull('${guiaT}','${bfId}')" title="Actualizar">↻</button>
+              </div>
+              <div id="${bfId}"><div class="bf-loading">Cargando...</div></div>
+            </div>
+            <div class="divider"></div>
             <div class="progress-wrap">
-              <div class="progress-label"><span>Día ${dia} / 12</span><span>${pct}%</span></div>
+              <div class="progress-label"><span>Seguimiento día ${dia} / 12</span><span>${pct}%</span></div>
               <div class="progress-bg"><div class="progress-fill" style="width:${pct}%"></div></div>
             </div>
             <span class="dia-chip">Mensaje Día ${dia}</span>
@@ -501,6 +565,12 @@
             </div>
           </div>`;
         }).join('');
+        // Cargar Box Full para cada envío
+        snap.docs.forEach(doc => {
+          const p = doc.data();
+          const guiaT = p.guiaTracking || p.guia;
+          if (guiaT) cargarBoxFull(guiaT, `bf-${doc.id}`);
+        });
       });
     }
 
@@ -631,92 +701,97 @@
       }
     });
   </script>
-</head>
-
-<body>
+ </head>
+ <body>
   <header>
-    <div style="width:36px;"></div>
-    <div class="header-logo">
-      <div class="logo-text">Eunoia Shop</div>
-      <span class="logo-sub">Control de Envíos</span>
-    </div>
-    <button class="bell-btn" onclick="toggleNotifPanel()" title="Ver pendientes">
-      <span class="bell-icon">🔔</span>
-      <span class="bell-dot" id="bell-dot"></span>
-    </button>
+   <div style="width:36px;"></div>
+   <div class="header-logo">
+    <div class="logo-text">Eunoia Shop</div>
+    <span class="logo-sub">Control de Envíos</span>
+   </div>
+   <button class="bell-btn" onclick="toggleNotifPanel()" title="Ver pendientes"><span class="bell-icon">🔔</span> <span class="bell-dot" id="bell-dot"></span></button>
   </header>
   <div id="notif-status" class="notif-status" style="display:none;"></div>
-
   <nav>
-    <button class="nav-btn" data-panel="p-c" onclick="irA('p-c')">Despacho</button>
-    <button class="nav-btn" data-panel="p-s" onclick="irA('p-s')">Seguimiento</button>
-    <button class="nav-btn" data-panel="p-h" onclick="irA('p-h')">Historial</button>
-    <button class="nav-btn" data-panel="p-v" onclick="irA('p-v')">Ventas</button>
+   <button class="nav-btn" data-panel="p-c" onclick="irA('p-c')">Despacho</button>
+   <button class="nav-btn" data-panel="p-s" onclick="irA('p-s')">Seguimiento</button>
+   <button class="nav-btn" data-panel="p-h" onclick="irA('p-h')">Historial</button>
+   <button class="nav-btn" data-panel="p-v" onclick="irA('p-v')">Ventas</button>
   </nav>
-
   <!-- PANEL NOTIFICACIONES -->
   <div class="notif-overlay" id="notif-overlay" onclick="cerrarNotifPanel()"></div>
   <div class="notif-panel" id="notif-panel">
-    <div class="notif-panel-header">
-      <div class="notif-panel-title">🔔 Pendientes</div>
-      <button class="notif-close" onclick="cerrarNotifPanel()">✕</button>
-    </div>
-    <div class="notif-count" id="notif-panel-count"></div>
-    <div class="notif-list" id="notif-panel-list"></div>
-    <div style="padding:12px 16px; border-top:1px solid var(--gray2); flex-shrink:0;">
-      <button class="btn btn-black" style="font-size:11px; padding:10px; margin-bottom:0;" onclick="iniciarNotificaciones()">
-        ⏰ Activar recordatorios 9am y 2:30pm
-      </button>
-    </div>
+   <div class="notif-panel-header">
+    <div class="notif-panel-title">🔔 Pendientes</div>
+    <button class="notif-close" onclick="cerrarNotifPanel()">✕</button>
+   </div>
+   <div class="notif-count" id="notif-panel-count"></div>
+   <div class="notif-list" id="notif-panel-list"></div>
+   <div style="padding:12px 16px; border-top:1px solid var(--gray2); flex-shrink:0;">
+    <button class="btn btn-black" style="font-size:11px; padding:10px; margin-bottom:0;" onclick="iniciarNotificaciones()">⏰ Activar recordatorios 9am y 2:30pm</button>
+   </div>
   </div>
-
   <!-- DESPACHO -->
   <div id="p-c" class="panel active">
-    <div class="section-title">Despacho <span>✦</span></div>
-    <div class="file-wrap" onclick="document.getElementById('pdf-input').click()">
-      <input type="file" id="pdf-input" accept=".pdf" onchange="leerPDF(this.files[0])">
-      <div class="file-icon">📎</div>
-      <div class="file-text">Toca para subir guías PDF</div>
-      <div class="file-name" id="file-name"></div>
-    </div>
-    <div id="list-c"></div>
+   <div class="section-title">
+    Despacho <span>✦</span>
+   </div>
+   <div class="file-wrap" onclick="document.getElementById('pdf-input').click()">
+    <input type="file" id="pdf-input" accept=".pdf" onchange="leerPDF(this.files[0])">
+    <div class="file-icon">📎</div>
+    <div class="file-text">Toca para subir guías PDF</div>
+    <div class="file-name" id="file-name"></div>
+   </div>
+   <div id="list-c"></div>
   </div>
-
   <!-- SEGUIMIENTO -->
   <div id="p-s" class="panel">
-    <div class="section-title">Seguimiento <span>✦</span></div>
-    <div id="list-s"></div>
+   <div class="section-title">
+    Seguimiento <span>✦</span>
+   </div>
+   <div id="list-s"></div>
   </div>
-
   <!-- HISTORIAL -->
   <div id="p-h" class="panel">
-    <div class="section-title">Historial <span>✦</span></div>
-    <div class="filtro-wrap">
-      <button class="filtro-btn active" data-filtro="todos" onclick="cargarHistorial('todos')">Todos</button>
-      <button class="filtro-btn" data-filtro="entregado" onclick="cargarHistorial('entregado')">Entregados</button>
-      <button class="filtro-btn" data-filtro="no" onclick="cargarHistorial('no')">No entregados</button>
-    </div>
-    <div id="list-h"></div>
+   <div class="section-title">
+    Historial <span>✦</span>
+   </div>
+   <div class="filtro-wrap">
+    <button class="filtro-btn active" data-filtro="todos" onclick="cargarHistorial('todos')">Todos</button>
+    <button class="filtro-btn" data-filtro="entregado" onclick="cargarHistorial('entregado')">Entregados</button>
+    <button class="filtro-btn" data-filtro="no" onclick="cargarHistorial('no')">No entregados</button>
+   </div>
+   <div id="list-h"></div>
   </div>
-
   <!-- VENTAS -->
   <div id="p-v" class="panel">
-    <div class="section-title">Ventas <span>✦</span></div>
-    <div class="stat-grid">
-      <div class="stat-box"><div class="stat-num" id="stat-total">—</div><div class="stat-label">Total entregas</div></div>
-      <div class="stat-box"><div class="stat-num" id="stat-mes">—</div><div class="stat-label">Este mes</div></div>
+   <div class="section-title">
+    Ventas <span>✦</span>
+   </div>
+   <div class="stat-grid">
+    <div class="stat-box">
+     <div class="stat-num" id="stat-total">—</div>
+     <div class="stat-label">Total entregas</div>
     </div>
-    <div class="stat-grid" style="grid-template-columns:1fr;">
-      <div class="stat-box green"><div class="stat-num" id="stat-var" style="font-size:24px;">—</div><div class="stat-label">vs. mes anterior</div></div>
+    <div class="stat-box">
+     <div class="stat-num" id="stat-mes">—</div>
+     <div class="stat-label">Este mes</div>
     </div>
-    <div class="chart-wrap">
-      <div class="chart-title">Entregas por mes</div>
-      <canvas id="ventasChart" height="220"></canvas>
+   </div>
+   <div class="stat-grid" style="grid-template-columns:1fr;">
+    <div class="stat-box green">
+     <div class="stat-num" id="stat-var" style="font-size:24px;">—</div>
+     <div class="stat-label">vs. mes anterior</div>
     </div>
-    <div class="chart-wrap">
-      <div class="chart-title">Detalle mensual</div>
-      <div id="ventas-list"></div>
-    </div>
+   </div>
+   <div class="chart-wrap">
+    <div class="chart-title">Entregas por mes</div>
+    <canvas id="ventasChart" height="220"></canvas>
+   </div>
+   <div class="chart-wrap">
+    <div class="chart-title">Detalle mensual</div>
+    <div id="ventas-list"></div>
+   </div>
   </div>
-</body>
+ </body>
 </html>
