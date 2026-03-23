@@ -325,6 +325,7 @@
     function programarAmbas() {
       programarTurno('manana', 9, 0);
       programarTurno('tarde', 14, 30);
+      programarTurno('urgentes', 10, 0);
     }
 
     function programarTurno(turno, hora, min) {
@@ -346,9 +347,30 @@
       if (Notification.permission !== 'granted') return;
       const snap = await db.collection("pedidos").where("estado","==","En Camino").get();
       if (snap.empty) return;
+
+      if (turno === 'urgentes') {
+        // Ordenar por fecha más antigua primero
+        const docs = snap.docs.sort((a,b) => (a.data().fecha||0) - (b.data().fecha||0));
+        const count = docs.length;
+        const masViejo = docs[0].data();
+        const diasViejo = Math.floor((Date.now() - (masViejo.fecha||0)) / 86400000);
+        const lines = docs.slice(0,3).map(d => {
+          const p = d.data();
+          const dias = Math.floor((Date.now() - (p.fecha||0)) / 86400000);
+          return `${p.nombre.split(' ')[0]} — ${dias} día${dias!==1?'s':''}`;
+        }).join('
+');
+        const n = new Notification(`🚨 Eunoia Shop — ${count} en camino`, {
+          body: lines + (count > 3 ? `
+...y ${count-3} más` : ''),
+          tag: 'urgentes', renotify: true
+        });
+        n.onclick = () => { window.focus(); irA('p-s'); n.close(); };
+        return;
+      }
+
       const nombres = snap.docs.map(d => d.data().nombre.split(' ')[0]);
       const count = nombres.length;
-      // Usar SW si está disponible, sino notificación directa
       if (swReg?.active) {
         swReg.active.postMessage({ type: 'NOTIF', nombres, count, turno });
       } else {
@@ -544,19 +566,24 @@
 
     function renderBoxFullTimeline(steps, guiaTracking, fechaEstimada, paqueteria) {
       const svgArrow = `<svg viewBox="0 0 24 24"><path d="M12 4v12M6 11l6 6 6-6" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
+      const svgCheck = `<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" fill="none"/></svg>`;
       const metaHtml = (fechaEstimada || paqueteria) ? `
         <div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px;">
-          ${fechaEstimada ? `<div style="background:rgba(226,98,42,0.1);border-radius:8px;padding:6px 10px;font-size:11px;"><span style="color:var(--muted);font-weight:600;">📅 Entrega est.</span><br><span style="font-weight:700;color:var(--orange);">${fechaEstimada}</span></div>` : ''}
-          ${paqueteria ? `<div style="background:rgba(39,174,96,0.1);border-radius:8px;padding:6px 10px;font-size:11px;"><span style="color:var(--muted);font-weight:600;">🚚 Paquetería</span><br><span style="font-weight:700;color:var(--green);">${paqueteria}</span></div>` : ''}
+          ${paqueteria ? `<div style="background:rgba(37,99,235,0.08);border-radius:8px;padding:6px 10px;font-size:11px;display:flex;align-items:center;gap:5px;"><span style="font-size:16px;">🚚</span><span style="font-weight:700;color:#2563eb;">${paqueteria}</span></div>` : ''}
+          ${fechaEstimada ? `<div style="background:rgba(226,98,42,0.1);border-radius:8px;padding:6px 10px;font-size:11px;"><span style="color:var(--muted);font-weight:600;display:block;">📅 Entrega estimada</span><span style="font-weight:700;color:var(--orange);">${fechaEstimada}</span></div>` : ''}
         </div>` : '';
-      const stepsHtml = steps.map(s => `
+      const stepsHtml = steps.map(s => {
+        const isEntregado = /entregado/i.test(s.title);
+        const icon = (s.done && isEntregado) ? svgCheck : svgArrow;
+        return `
         <div class="bf-step ${s.done ? 'done' : 'pending'}">
-          <div class="bf-dot ${s.done ? 'done' : 'pending'}">${svgArrow}</div>
+          <div class="bf-dot ${s.done ? 'done' : 'pending'}" style="${s.done && isEntregado ? 'background:#27ae60;' : ''}">${icon}</div>
           <div class="bf-info">
             <div class="bf-step-title ${s.done ? '' : 'pending'}">${s.title}</div>
             <div class="bf-step-date">${s.date}</div>
           </div>
-        </div>`).join('');
+        </div>`;
+      }).join('');
       return `
         ${metaHtml}
         <div class="bf-timeline">${stepsHtml}</div>
@@ -609,7 +636,10 @@
                 <div class="card-info" style="margin-top:4px;margin-bottom:0;">
                   <span class="guia-badge">${p.guia}</span>
                   ${p.servicio ? `<span class="badge ${p.servicio==='COD'?'badge-no':'badge-camino'}" style="font-size:9px;padding:2px 7px;">${p.servicio}</span>` : ''}
-                  <span style="font-size:10px;">${p.telefono}</span>
+                  <a href="tel:+${p.telefono}" style="display:inline-flex;align-items:center;gap:4px;font-size:10px;color:var(--muted);text-decoration:none;">
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07A19.5 19.5 0 013.07 9.81 19.79 19.79 0 01.22 1.18 2 2 0 012.18 0h3a2 2 0 012 1.72c.127.96.361 1.903.7 2.81a2 2 0 01-.45 2.11L6.91 7.09a16 16 0 006 6l.56-.56a2 2 0 012.11-.45c.907.339 1.85.573 2.81.7A2 2 0 0122 14.92z"/></svg>
+                    ${p.telefono}
+                  </a>
                 </div>
                 ${p.enviadoHoy ? '<div style="font-size:10px;color:var(--green);font-weight:700;margin-top:3px;">✓ Enviado hoy</div>' : ''}
               </div>
