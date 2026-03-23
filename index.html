@@ -434,7 +434,19 @@
               if (matchTel) tel = matchTel[0].slice(-8);
             }
           }
-          if (guia !== "S/G") temp.push({ nom: nom.toUpperCase(), tel, guia, guiaTracking });
+          // Extraer servicio (COD/STD) y contenido
+          let servicio = '';
+          let contenido = '';
+          if (guia.toUpperCase().startsWith("FD")) {
+            const svcMatch = fullText.match(/Servicio\s+(COD|STD|EXP|DOM|[A-Z]{2,6})/i);
+            if (svcMatch) servicio = svcMatch[1].toUpperCase();
+            const contMatch = fullText.match(/Contenido:\s*([^\n\r]{3,60}?)(?=\s*Ref:|\s*Forma Pago|\s*$)/i);
+            if (contMatch) contenido = contMatch[1].trim();
+          } else if (guia.toUpperCase().startsWith("BH")) {
+            if (/\bCOD\b/.test(fullText)) servicio = 'COD';
+            else if (/\bSTD\b/.test(fullText)) servicio = 'STD';
+          }
+          if (guia !== "S/G") temp.push({ nom: nom.toUpperCase(), tel, guia, guiaTracking, servicio, contenido });
         }
         renderDespacho();
       };
@@ -447,15 +459,28 @@
         list.innerHTML = `<div class="empty-state"><div class="empty-icon">📄</div><div class="empty-text">No se encontraron guías</div></div>`;
         return;
       }
+      // Pendientes primero, enviadas al final
+      const ordenados = [...temp.map((p,i) => ({...p, _i:i}))].sort((a,b) => {
+        if (a.enviada && !b.enviada) return 1;
+        if (!a.enviada && b.enviada) return -1;
+        return 0;
+      });
+      const pendientes = ordenados.filter(p => !p.enviada).length;
       list.innerHTML = `<button class="btn-limpiar" onclick="temp=[];document.getElementById('file-name').textContent='';renderDespacho()">✕ Limpiar vista previa</button>` +
-        temp.map((p, i) => `
-          <div class="card">
+        (pendientes < ordenados.length ? `<div style="font-size:11px;color:var(--muted);text-align:center;margin-bottom:10px;font-weight:600;">${pendientes} pendiente${pendientes!==1?'s':''} · ${ordenados.length - pendientes} enviada${(ordenados.length-pendientes)!==1?'s':''}</div>` : '') +
+        ordenados.map((p) => `
+          <div class="card" style="${p.enviada ? 'opacity:0.6;border-left-color:var(--green);' : ''}">
+            ${p.enviada ? '<div style="font-size:10px;color:var(--green);font-weight:700;margin-bottom:8px;">✓ Enviada</div>' : ''}
             <div class="card-label">Cliente</div>
-            <input type="text" id="n-${i}" value="${p.nom}" class="edit-input" style="font-weight:700;font-size:18px;">
+            <input type="text" id="n-${p._i}" value="${p.nom}" class="edit-input" style="font-weight:700;font-size:18px;" ${p.enviada ? 'disabled' : ''}>
             <div class="card-label">WhatsApp</div>
-            <input type="text" id="t-${i}" value="${p.tel}" class="edit-input" style="color:#25D366;font-size:15px;">
-            <div class="card-info"><span class="guia-badge">${p.guia}</span></div>
-            <button class="btn btn-black" onclick="guardarEnvio(${i})">📦 Registrar y enviar guía</button>
+            <input type="text" id="t-${p._i}" value="${p.tel}" class="edit-input" style="color:#25D366;font-size:15px;" ${p.enviada ? 'disabled' : ''}>
+            <div class="card-info">
+              <span class="guia-badge">${p.guia}</span>
+              ${p.servicio ? `<span class="badge ${p.servicio==='COD'?'badge-no':'badge-camino'}" style="font-size:10px;">${p.servicio}</span>` : ''}
+            </div>
+            ${p.contenido ? `<div style="font-size:11px;color:var(--muted);margin-bottom:10px;">📦 ${p.contenido}</div>` : ''}
+            ${!p.enviada ? `<button class="btn btn-black" onclick="guardarEnvio(${p._i})">📦 Registrar y enviar guía</button>` : ''}
           </div>`).join('');
     }
 
@@ -468,8 +493,13 @@
       const msg = getMensaje(0, n, guiaTracking);
       await db.collection("pedidos").add({
         nombre: n.toUpperCase(), telefono: telFull, guia, guiaTracking,
-        diaSeguimiento: 1, fecha: Date.now(), estado: 'En Camino'
+        servicio: temp[i].servicio || '', contenido: temp[i].contenido || '',
+        diaSeguimiento: 1, fecha: Date.now(), estado: 'En Camino',
+        enviadoHoy: false
       });
+      // Marcar como enviada y re-renderizar
+      temp[i].enviada = true;
+      renderDespacho();
       window.open(`https://wa.me/${telFull}?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
@@ -546,7 +576,23 @@
         // Obtener historial para detectar clientes frecuentes
         const histSnap = await db.collection("pedidos").where("estado","in",["Entregado","No Entregado"]).get();
         const nombresHistorial = histSnap.docs.map(d => d.data().nombre.trim().toUpperCase());
-        el.innerHTML = snap.docs.map(doc => {
+        // Ordenar: no enviados hoy primero, enviados hoy al final
+        const hoy = new Date().toDateString();
+        const docs = snap.docs.map(doc => {
+          const d = doc.data();
+          // Resetear enviadoHoy si es de otro día
+          if (d.enviadoHoy && d.fechaEnvioHoy !== hoy) {
+            db.collection("pedidos").doc(doc.id).update({ enviadoHoy: false, fechaEnvioHoy: '' });
+          }
+          return doc;
+        }).sort((a, b) => {
+          const aEnv = a.data().enviadoHoy && a.data().fechaEnvioHoy === hoy;
+          const bEnv = b.data().enviadoHoy && b.data().fechaEnvioHoy === hoy;
+          if (aEnv && !bEnv) return 1;
+          if (!aEnv && bEnv) return -1;
+          return (a.data().fecha || 0) - (b.data().fecha || 0);
+        });
+        el.innerHTML = docs.map(doc => {
           const p = doc.data();
           const dia = p.diaSeguimiento || 1;
           const guiaT = p.guiaTracking || p.guia;
@@ -562,8 +608,10 @@
                 <div style="font-weight:700;font-size:17px;">${p.nombre} ${esFrecuente ? '<span title="Cliente frecuente" style="font-size:15px;">⭐</span>' : ''}</div>
                 <div class="card-info" style="margin-top:4px;margin-bottom:0;">
                   <span class="guia-badge">${p.guia}</span>
+                  ${p.servicio ? `<span class="badge ${p.servicio==='COD'?'badge-no':'badge-camino'}" style="font-size:9px;padding:2px 7px;">${p.servicio}</span>` : ''}
                   <span style="font-size:10px;">${p.telefono}</span>
                 </div>
+                ${p.enviadoHoy ? '<div style="font-size:10px;color:var(--green);font-weight:700;margin-top:3px;">✓ Enviado hoy</div>' : ''}
               </div>
               <div style="text-align:right;">
                 <span class="badge badge-camino" id="badge-${doc.id}">En camino</span>
@@ -596,7 +644,7 @@
           </div>`;
         }).join('');
         // Cargar Box Full para cada envío
-        snap.docs.forEach(doc => {
+        docs.forEach(doc => {
           const p = doc.data();
           const guiaT = p.guiaTracking || p.guia;
           if (guiaT) cargarBoxFull(guiaT, `bf-${doc.id}`, doc.id);
@@ -618,6 +666,24 @@
       }
     }, 5 * 60 * 1000);
 
+    // ── BÚSQUEDA SEGUIMIENTO ─────────────────────────────
+    function filtrarSeguimiento() {
+      const q = document.getElementById('buscar-s')?.value.toLowerCase() || '';
+      document.querySelectorAll('#list-s .card').forEach(card => {
+        const txt = card.textContent.toLowerCase();
+        card.style.display = txt.includes(q) ? '' : 'none';
+      });
+    }
+
+    // ── BÚSQUEDA HISTORIAL ────────────────────────────────
+    function filtrarHistorial() {
+      const q = document.getElementById('buscar-h')?.value.toLowerCase() || '';
+      document.querySelectorAll('#list-h .card').forEach(card => {
+        const txt = card.textContent.toLowerCase();
+        card.style.display = txt.includes(q) ? '' : 'none';
+      });
+    }
+
     function toggleMotivo(id) {
       const box = document.getElementById(`mbox-${id}`);
       box.classList.toggle('visible');
@@ -626,7 +692,11 @@
 
     async function abrirWA(tel, nom, dia, id, guiaT) {
       const msg = getMensaje(dia, nom, guiaT);
-      await db.collection("pedidos").doc(id).update({ diaSeguimiento: Math.min(dia+1,12) });
+      await db.collection("pedidos").doc(id).update({
+        diaSeguimiento: Math.min(dia+1,12),
+        enviadoHoy: true,
+        fechaEnvioHoy: new Date().toDateString()
+      });
       window.open(`https://wa.me/${tel}?text=${encodeURIComponent(msg)}`, '_blank');
     }
 
@@ -653,7 +723,23 @@
       q.onSnapshot(snap => {
         const el = document.getElementById('list-h');
         if (snap.empty) { el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No hay registros aquí</div></div>`; return; }
-        el.innerHTML = snap.docs.map(doc => {
+        // Ordenar: no enviados hoy primero, enviados hoy al final
+        const hoy = new Date().toDateString();
+        const docs = snap.docs.map(doc => {
+          const d = doc.data();
+          // Resetear enviadoHoy si es de otro día
+          if (d.enviadoHoy && d.fechaEnvioHoy !== hoy) {
+            db.collection("pedidos").doc(doc.id).update({ enviadoHoy: false, fechaEnvioHoy: '' });
+          }
+          return doc;
+        }).sort((a, b) => {
+          const aEnv = a.data().enviadoHoy && a.data().fechaEnvioHoy === hoy;
+          const bEnv = b.data().enviadoHoy && b.data().fechaEnvioHoy === hoy;
+          if (aEnv && !bEnv) return 1;
+          if (!aEnv && bEnv) return -1;
+          return (a.data().fecha || 0) - (b.data().fecha || 0);
+        });
+        el.innerHTML = docs.map(doc => {
           const p = doc.data(), es = p.estado === 'Entregado';
           const ts = p.fechaCierre || p.fecha;
           const f = ts ? new Date(ts).toLocaleDateString('es-HN',{day:'2-digit',month:'short',year:'numeric'}) : '';
@@ -793,6 +879,7 @@
    <div class="section-title">
     Seguimiento <span>✦</span>
    </div>
+   <input type="search" id="buscar-s" placeholder="🔍 Buscar cliente o guía..." oninput="filtrarSeguimiento()" class="edit-input" style="margin-bottom:14px;font-size:14px;padding:8px 4px;">
    <div id="list-s"></div>
   </div>
   <!-- HISTORIAL -->
@@ -800,6 +887,7 @@
    <div class="section-title">
     Historial <span>✦</span>
    </div>
+   <input type="search" id="buscar-h" placeholder="🔍 Buscar cliente o guía..." oninput="filtrarHistorial()" class="edit-input" style="margin-bottom:12px;font-size:14px;padding:8px 4px;">
    <div class="filtro-wrap">
     <button class="filtro-btn active" data-filtro="todos" onclick="cargarHistorial('todos')">Todos</button>
     <button class="filtro-btn" data-filtro="entregado" onclick="cargarHistorial('entregado')">Entregados</button>
