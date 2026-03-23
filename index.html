@@ -358,11 +358,9 @@
           const p = d.data();
           const dias = Math.floor((Date.now() - (p.fecha||0)) / 86400000);
           return `${p.nombre.split(' ')[0]} — ${dias} día${dias!==1?'s':''}`;
-        }).join('
-');
+        }).join('\n');
         const n = new Notification(`🚨 Eunoia Shop — ${count} en camino`, {
-          body: lines + (count > 3 ? `
-...y ${count-3} más` : ''),
+          body: lines + (count > 3 ? `\n...y ${count-3} más` : ''),
           tag: 'urgentes', renotify: true
         });
         n.onclick = () => { window.focus(); irA('p-s'); n.close(); };
