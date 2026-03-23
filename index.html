@@ -753,23 +753,7 @@
       q.onSnapshot(snap => {
         const el = document.getElementById('list-h');
         if (snap.empty) { el.innerHTML = `<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No hay registros aquí</div></div>`; return; }
-        // Ordenar: no enviados hoy primero, enviados hoy al final
-        const hoy = new Date().toDateString();
-        const docs = snap.docs.map(doc => {
-          const d = doc.data();
-          // Resetear enviadoHoy si es de otro día
-          if (d.enviadoHoy && d.fechaEnvioHoy !== hoy) {
-            db.collection("pedidos").doc(doc.id).update({ enviadoHoy: false, fechaEnvioHoy: '' });
-          }
-          return doc;
-        }).sort((a, b) => {
-          const aEnv = a.data().enviadoHoy && a.data().fechaEnvioHoy === hoy;
-          const bEnv = b.data().enviadoHoy && b.data().fechaEnvioHoy === hoy;
-          if (aEnv && !bEnv) return 1;
-          if (!aEnv && bEnv) return -1;
-          return (a.data().fecha || 0) - (b.data().fecha || 0);
-        });
-        el.innerHTML = docs.map(doc => {
+        el.innerHTML = snap.docs.map(doc => {
           const p = doc.data(), es = p.estado === 'Entregado';
           const ts = p.fechaCierre || p.fecha;
           const f = ts ? new Date(ts).toLocaleDateString('es-HN',{day:'2-digit',month:'short',year:'numeric'}) : '';
